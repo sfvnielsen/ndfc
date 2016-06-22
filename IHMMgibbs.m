@@ -74,8 +74,7 @@ function [z_mj, E, LL, par_mj,post_samples]=IHMMgibbs(X,opts,sampling_state)
 % Written by: Morten Mørup and Søren Føns Vind Nielsen
 % Technical University of Denmark, Spring 2016
 %%%%
-addpath utils
-global Xtrue
+global Xtrue Xpast
 Xtrue = X;
 [p,N]=size(X);
 
@@ -83,7 +82,22 @@ if nargin==3
     opts = sampling_state.opts;
 end
 if isfield(opts,'emission_type'); par.emission_type=opts.emission_type; else par.emission_type='SSM'; end
+if isfield(opts,'begin_i'); begin_i=opts.begin_i; else begin_i=false(1,N); begin_i(1)=true; end;
 if isfield(opts,'Kinit'); Kinit=opts.Kinit; else Kinit=ceil(log(N)); end
+switch par.emission_type
+    case 'VAR'
+        if isfield(opts,'M'); M=opts.M; else M=1; end
+        if isfield(opts,'tau_M'); tau_M=opts.tau_M; else tau_M=ones(M,1); end
+        task_id_begin = find(begin_i);
+        task_id_end = task_id_begin-1; task_id_end = [task_id_end(2:end),N];
+        n_tasks = length(task_id_begin);
+        if isfield(opts,'const_state'); const_state = opts.const_state; z = ones(N-n_tasks*M,1); else const_state=false;end;
+        if isfield(opts,'z'), z=opts.z; elseif const_state, else z=ceil(Kinit*rand(N-n_tasks*M,1)); end
+    case {'ZMG','SSM'}
+        if isfield(opts,'const_state'); const_state = opts.const_state; z = ones(N,1); else const_state=false;end;
+        if isfield(opts,'z'), z=opts.z; elseif const_state, else z=ceil(Kinit*rand(N,1)); end
+end
+
 if isfield(opts,'Sigma0'); Sigma0=opts.Sigma0; else Sigma0=eye(p); end
 if isfield(opts,'mu0'); mu0=opts.mu0; else mu0=zeros(p,1); end
 if isfield(opts,'lambda'); lambda = opts.lambda; else lambda=std(X(:)); end
@@ -94,20 +108,20 @@ if isfield(opts,'alpha'); alpha=opts.alpha; else alpha=1; end;
 if isfield(opts,'gamma'); gamma=opts.gamma; else gamma=1; end;
 if isfield(opts,'beta'); beta=opts.beta; else beta=ones(1,Kinit+1)/(Kinit+1); end;
 if isfield(opts,'kappa'); kappa = opts.kappa; else kappa=0; end
-if isfield(opts,'begin_i'); begin_i=opts.begin_i; else begin_i=false(1,N); begin_i(1)=true; end;
+
 if isfield(opts,'const_kappa'); const_kappa=opts.const_kappa; else const_kappa=true;end;
 if isfield(opts,'split_merge'); split_merge=opts.split_merge; else split_merge=true;end;
-if isfield(opts,'debug'); debug=opts.debug; else debug=false;end;
-if isfield(opts,'debug_print'); debug_print=opts.debug_print; else debug_print=false;end;
-if isfield(opts,'const_state'); const_state = opts.const_state; z = ones(N,1); else const_state=false;end;
 if isfield(opts,'cpoint_factor'); cpoint_factor = opts.cpoint_factor; else cpoint_factor=0;end;
 if isfield(opts,'max_annealing'); max_annealing = opts.max_annealing; else max_annealing=false;end;
 if isfield(opts,'burnin'); burnin = opts.burnin; else burnin=ceil(maxiter/2);end;
-if isfield(opts,'z'), z=opts.z; elseif const_state, else z=ceil(Kinit*rand(N,1)); end
 if isfield(opts,'post_thinning'); post_thinning = opts.post_thinning; else post_thinning=10;end;
+
+if isfield(opts,'debug'); debug=opts.debug; else debug=false;end;
+if isfield(opts,'debug_print'); debug_print=opts.debug_print; else debug_print=false;end;
 if isfield(opts,'keyboard_interrupt'); keyboard_interrupt=opts.keyboard_interrupt; else keyboard_interrupt=false;end;
 if isfield(opts,'save_every'); save_every=opts.save_every; else save_every=0;end;
-if isfield(opts,'save_file'); save_file=opts.save_file; else save_file='ihmm_wish_results.mat';end;
+if isfield(opts,'save_file'); save_file=opts.save_file; else save_file='ihmmgibbs_results.mat';end;
+if isfield(opts,'verbose'); par.verbose=opts.verbose; else par.verbose=false;end;
 
 %% Initialization
 % hyperparametesr set to values used in iHMM-v0.5__ by Jurgen Van Gael
@@ -141,14 +155,44 @@ switch par.emission_type
         emission_name = 'State Specific Mean (SSM)';
         par.lambda = lambda; % mean priors
         par.mu0 = mu0;
+        post_samples.M = cell(0);
     case 'VAR'
         emission_name = 'Vector Auto Regressive (VAR)';
-        % stuff
+        post_samples.A = cell(0);
+        R_inv = kron(diag(1./tau_M),eye(p));
+        par.R_inv=R_inv;
+        par.tau_M=tau_M;
+        par.M = M;
+        
+        % Extract past based on model order of each process (M)
+        Xpast = nan(p*M,N-n_tasks*M);
+        wX = nan(p,N-n_tasks*M);
+        nn = 0;
+        begin_i_new = false(length(begin_i)-M*n_tasks,1);
+        for ta = 1:n_tasks
+            Xt = X(:,task_id_begin(ta):task_id_end(ta));
+            Nt = size(Xt,2);
+            for t = 1:M
+                ids = (1+p*(t-1)):(1+p*(t-1))+p-1;
+                Xpast(ids,1+nn:Nt-M+nn) = ...
+                    Xt(:,(M-(t-1)):(Nt-t));
+            end
+            wX(:,(1:Nt-M)+nn) = Xt(:,(M+1):end);
+            begin_i_new(nn+1) = true;
+            nn = nn + Nt-M;
+        end
+        begin_i_old = begin_i;
+        begin_i = begin_i_new;
+        X = wX; clear wX
+        Xtrue = X;
+        N = N-n_tasks*M;
+        par.N=N;
 end
 
 % Initialize relevant sufficient statistics and log probability of each
 % cluster
 [logP,par] = initializePar(X,z,par);
+par.begin_i = begin_i;
 
 % State sequence parameters
 Z=sparse(z,1:N,ones(1,N),max(z),N);
@@ -162,6 +206,7 @@ begin_i_tmp(begin_i_tmp==1)=[];
 N_trans=N_trans-Z(:,begin_i_tmp-1)*Z(:,begin_i_tmp)';
 
 par.N_trans=N_trans;
+par.const_state = const_state;
 par.debug = debug;
 par.debug_print = debug_print;
 par.keyboard_interrupt = keyboard_interrupt;
@@ -196,9 +241,9 @@ if nargin==3
    disp(['Restarting algorithm from previous state...Iteration: ' num2str(sampling_state.iter)]) 
 end
 
-% Main loop
+%% Main loop
 for iter=iters;
-    
+    iter_start = tic;
     % Gibbs sample
     if ~const_state && (iter<=burnin || ~max_annealing)
         [z,par,logP]=gibbs_sample(X,z,logP,par,false,randperm(N));
@@ -243,30 +288,7 @@ for iter=iters;
     % Sample parameters from posterior (pre-marginalization)
     if mod(iter,post_thinning)==0 && iter>burnin && ~max_annealing
         disp('Sampling parameters from posterior...')
-        p = par.p;
-        K = max(z);
-        postSIGK = zeros(p,p,K);
-        % Sample Sigma
-        for k = 1:K
-            S = par.R_avg(:,:,k)'*par.R_avg(:,:,k);
-            if ~issymmetric(S)
-                warning('Sufficient statistics for Sigma is not symmetric!')
-                warning('Symmetricizing...')
-                S = (triu(S)+tril(S)')/2;
-                S = S+triu(S,1)';
-            end
-            postSIGK(:,:,k) = iwishrnd(S,par.v0+par.sumZ(k));
-        end
-        
-        % Sample Transition matrix
-        if ~const_state
-            trans = SampleTransitionMatrix(z,par.alpha*par.beta(1:end-1),par.kappa);
-            post_samples.Pi{end+1} = trans;
-        end
-        % Save everything
-        post_samples.S{end+1} = postSIGK;
-        post_samples.z{end+1} = z;
-        post_samples.par{end+1} = par;
+        post_samples = sampleParameterPosteriors(post_samples,z,par);
     end
     
     if const_state
@@ -286,9 +308,9 @@ for iter=iters;
         end
     end
     if mod(iter,10)==0|| iter==1
-        disp(sprintf('%12s | %15s | %12s |','Iteration','Log-Likelihood','# of states'));
+        disp(sprintf('%12s | %15s | %12s | %12s |','Iteration','Log-Likelihood','# of states','Time [s]'));
     end
-    disp(sprintf('%12d | %15d | %12d |',iter,LL(iter),K));
+    disp(sprintf('%12d | %15d | %12d | %12.4f |',iter,LL(iter),K,toc(iter_start)));
     if iter==burnin && max_annealing
         disp(['  '])
         disp([' ... STARTING MAX ANNEALING ... '])
@@ -315,11 +337,8 @@ if max_annealing
     par_mj = par;
     z_mj = z;
 end
-% Expectation of covariance matrix for each cluster
-E.Sigma = zeros(size(par_mj.R_avg)); 
-for k=1:size(par_mj.R_avg,3)
-    E.Sigma(:,:,k)=(par_mj.R_avg(:,:,k)'*par_mj.R_avg(:,:,k))/(par_mj.sumZ(k)+v0-p-1);
-end
+% Expectation of parameters
+E = calcExpectations(par);
 %--------------------------------------------------------------------
 function par=sample_kappa(par,z)
 % Sample kappa - stickyness parameter (Random Walk MH)
@@ -340,7 +359,9 @@ for rep=1:maxiter
         accept=accept+1;
     end
 end
+if par.verbose
 disp(['accepted ' num2str(accept) ' out of ' num2str(maxiter) ' samples for elements of kappa']);
+end
 %eof
 
 %--------------------------------------------------------------------
@@ -356,6 +377,9 @@ switch par.emission_type
     case 'SSM'
         lambda=par.lambda;
         mu0=par.mu0;     
+        
+    case 'VAR'
+        R_inv = par.R_inv;
 end
 
 i1=ceil(N*rand);
@@ -423,7 +447,11 @@ if z(i1)==z(i2) % Split move
             logP_t(comp(2))=par.logPrior-(nn/2*logdet(comp(2))-nn*p/2*log(2)-...
                 mvgammaln(p,nn/2))-p/2*(log(lambda)-log((par_t.sumZ(comp(2))+lambda)));
         case 'VAR'
-            % stuff
+            nn=(par_t.sumZ(comp(1))+par.v0);
+            logP_t(comp(1)) = par.logPrior+logdet(comp(1))+nn*p/2*log(2)+mvgammaln(p,nn/2);
+            
+            nn=(par_t.sumZ(comp(2))+par.v0);
+            logP_t(comp(2)) = par.logPrior+logdet(comp(2))+nn*p/2*log(2)+mvgammaln(p,nn/2);
     end
     
     % Restricted Gibbs sampling
@@ -456,12 +484,16 @@ if z(i1)==z(i2) % Split move
     
     % Evalulate acceptance by MH-ratio
     if ~max_annealing && rand<exp(sum(logP_t)+logM_t-sum(logP)-logM-logQ);
-        disp(['split component ' num2str(z(i1))]);
+        if par.verbose
+            disp(['split component ' num2str(z(i1))]);
+        end
         par=par_t;
         z=z_t;
         logP=logP_t;    
     elseif max_annealing && ((sum(logP_t)+logM_t-sum(logP)-logM-logQ)>0)
-        disp(['split component ' num2str(z(i1))]);
+        if par.verbose
+            disp(['split component ' num2str(z(i1))]);
+        end
         par=par_t;
         z=z_t;
         logP=logP_t;
@@ -493,19 +525,20 @@ else % merge move
     z_new(z_new>z(i2))=z_new(z_new>z(i2))-1;
 
     logP_new=logP;
-    logP_new(comp(2))=[];
     switch par.emission_type
         case 'ZMG'
             nn=(par_new.sumZ(comp(1))+par.v0);
             logP_new(comp(1))=par.logPrior-(nn/2*logdet(comp(1))-nn*p/2*log(2)...
                 -mvgammaln(p,nn/2));
         case 'SSM'
-            nn=(par_new.sumZ(z_new(i1))+par.v0);
-            logP_new(z_new(i1))=par.logPrior-(nn/2*logdet(z_new(i1))-nn*p/2*log(2)...
-                -mvgammaln(p,nn/2))-p/2*(log(lambda)-log((par_new.sumZ(z_new(i1))+lambda)));
+            nn=(par_new.sumZ(comp(1))+par.v0);
+            logP_new(comp(1))=par.logPrior-(nn/2*logdet(comp(1))-nn*p/2*log(2)...
+                -mvgammaln(p,nn/2))-p/2*(log(lambda)-log((par_new.sumZ(comp(1))+lambda)));
         case 'VAR'
-            % stuff
+            nn=(par_new.sumZ(comp(1))+par.v0);
+            logP_new(comp(1))=par.logPrior+logdet(comp(1))+nn*p/2*log(2)+mvgammaln(p,nn/2);
     end
+    logP_new(comp(2))=[];
     
     logM_new=TransitionP(par_new,z_new);
     logM=TransitionP(par,z);
@@ -554,9 +587,12 @@ else % merge move
                 nn=(par_t.sumZ(z(i2))+par.v0);
                 logP_t(z(i2))=par.logPrior-(nn/2*logdet(z(i2))-nn*p/2*log(2)...
                     -mvgammaln(p,nn/2))-p/2*(log(lambda)-log((par_t.sumZ(z(i2))+lambda)));
-            
             case 'VAR'
-                % stuff
+                nn=(par_t.sumZ(z(i1))+par.v0);
+                logP_t(z(i1)) = par.logPrior+logdet(z(i1))+nn*p/2*log(2)+mvgammaln(p,nn/2);
+                
+                nn=(par_t.sumZ(z(i2))+par.v0);
+                logP_t(z(i2)) = par.logPrior+logdet(z(i2))+nn*p/2*log(2)+mvgammaln(p,nn/2);
         end
         % Restricted Gibbs sampling
         if sum(idx)>0
@@ -598,12 +634,16 @@ else % merge move
         
         % Evaluate MH-ratio and accept/reject
         if ~max_annealing && accept_rate<exp(sum(logP_new)+logM_new-sum(logP_t)-logM+logQ);
-            disp(['merged component ' num2str(z(i1)) ' with component ' num2str(z(i2))]);
+            if par.verbose
+                disp(['merged component ' num2str(z(i1)) ' with component ' num2str(z(i2))]);
+            end
             par=par_new;
             z=z_new;
             logP=logP_new;
         elseif max_annealing && ((sum(logP_new)+logM_new-sum(logP_t)-logM+logQ)>0)
-            disp(['merged component ' num2str(z(i1)) ' with component ' num2str(z(i2))]);
+            if par.verbose
+                disp(['merged component ' num2str(z(i1)) ' with component ' num2str(z(i2))]);
+            end
             par=par_new;
             z=z_new;
             logP=logP_new;
@@ -613,7 +653,9 @@ end
 % remove empty clusters
 idx_empty=sort(find(par.sumZ==0),'descend');
 for ii = idx_empty
-    disp(['Deleting cluster ' num2str(ii) ' - Its empty!'])
+    if par.verbose
+        disp(['Deleting cluster ' num2str(ii) ' - Its empty!'])
+    end
     switch par.emission_type
         case 'ZMG'
             par.R_avg(:,:,idx_empty)=[];
@@ -638,6 +680,7 @@ end
 function [z,par,logP,logQ]=gibbs_sample(X,z,logP,par,max_annealing,sample_idx,comp,forced)
 % Gibbs sampler for state assignments
 % NB! Also used for restricted gibbs sampling (using the comp variable)
+global Xpast
 if par.debug && nargin<7
     disp('Starting Gibbs sampler...')
 end
@@ -681,7 +724,16 @@ switch par.emission_type
         x_avg_tmp = zeros(p,K);
 
     case 'VAR'
-        % stuff
+        M = par.M;
+        R_inv=par.R_inv;
+        Sigma0 = par.Sigma0;
+        cSbb = par.cSbb;
+        Sxb = par.Sxb;
+        Sxx = par.Sxx;
+        
+        cSbb_tmp = zeros(M*p,M*p,K);
+        Sxb_tmp = zeros(p,M*p,K);
+        Sxx_tmp = zeros(p,p,K);
 end
 
 % gibbs sample clusters
@@ -705,21 +757,22 @@ for i=sample_idx
     end
     
     % Remove from sufficent statistics 
-    sumZ(z(i))=sumZ(z(i))-1;
+    
     switch par.emission_type
-        
         case 'ZMG' % Zero-Mean Gaussian
             [R_avg(:,:,z(i)),flag]=cholupdate(R_avg(:,:,z(i)),X(:,i),'-');
             if flag==1
                 warning('Cholesky down-date failed: Full downdate...')
                 R_avg(:,:,z(i)) = chol(X(:,z==z(i))*X(:,z==z(i)) - X(:,i)*X(:,i) + par.Sigma0 );
             end
+            sumZ(z(i))=sumZ(z(i))-1;
             logP(z(i))=logPrior-((sumZ(z(i))+v0)*sum(log(diag(R_avg(:,:,z(i)))))...
                 -(sumZ(z(i))+v0)*p/2*log(2)-mvgammaln(p,(sumZ(z(i))+v0)/2));
         
         case 'SSM' % State Specific Mean
             R_avg(:,:,z(i))=cholupdate(R_avg(:,:,z(i)),... % remove mean-part
                 1/sqrt(sumZ(z(i))+lambda)*(x_avg(:,z(i)) + lambda*mu0),'+'); %... and yes the sign is correct
+            sumZ(z(i))=sumZ(z(i))-1;
             x_avg(:,z(i)) = x_avg(:,z(i)) - X(:,i);
 
             [R_avg(:,:,z(i)),flag]=cholupdate(R_avg(:,:,z(i)),... % add new mean
@@ -744,16 +797,29 @@ for i=sample_idx
             logP(z(i))=logPrior-((sumZ(z(i))+v0)*sum(log(diag(R_avg(:,:,z(i)))))...
                 -(sumZ(z(i))+v0)*p/2*log(2)-mvgammaln(p,(sumZ(z(i))+v0)/2))...
                 -p/2*(log(lambda)-log((sumZ(z(i))+lambda)));
+            
+        case 'VAR' % Vector Autoregressive
+            sumZ(z(i))=sumZ(z(i))-1;
+            cSbb(:,:,z(i)) = cholupdate(cSbb(:,:,z(i)),Xpast(:,i),'-');
+            Sxb(:,:,z(i)) = Sxb(:,:,z(i)) - X(:,i)*Xpast(:,i)';
+            Sxx(:,:,z(i)) = Sxx(:,:,z(i)) - X(:,i)*X(:,i)';
+    
+            % Update likelihood
+            Sxbx =  Sxb(:,:,z(i))/cSbb(:,:,z(i));
+            Shat = Sxx(:,:,z(i)) - Sxbx*Sxbx';
+            vnew = v0+sumZ(z(i));
+            logP(z(i))=logPrior-p*sum(log(diag(cSbb(:,:,z(i))))) - ...
+                vnew*sum(log(diag(chol(Shat)))) + vnew*p/2*log(2) + mvgammaln(p,vnew/2);
     end
     %%% Evaluate the assignment of i'th observation to all K+1 states
     logdet=zeros(1,K+1);
     if isempty(comp)
-        sample_comp=1:K+1;
+        sample_comp=1:(K+1);
     else
         sample_comp=comp;
     end
     
-    for k=sample_comp
+    for k=sample_comp % Update sufficient statistics with current data point
         if k<=K
             switch par.emission_type
                 case 'ZMG'
@@ -775,9 +841,16 @@ for i=sample_idx
                     end
                     logdet(k)=2*sum(log(diag(Rtmp(:,:,k))));
                 case 'VAR'
-                    % stuff
+                    cSbb_tmp(:,:,k) = cholupdate(cSbb(:,:,k),Xpast(:,i),'+');
+                    Sxb_tmp(:,:,k) = Sxb(:,:,k) + X(:,i)*Xpast(:,i)';
+                    Sxx_tmp(:,:,k) = Sxx(:,:,k) + X(:,i)*X(:,i)';
+                    Sxbx = Sxb_tmp(:,:,k)/cSbb_tmp(:,:,k);
+                    Shat = Sxx_tmp(:,:,k) - Sxbx*Sxbx';
+                    % Calculate new log-determinant contribution
+                    logdet(k)=-p*log(det(cSbb_tmp(:,:,k))) - ...
+                        (v0+sumZ(k)+1)*sum(log(diag(chol(Shat))));
             end
-        else
+        else % Calculate new sufficient for new cluster
             switch par.emission_type
                 case 'ZMG'
                     Rtmp(:,:,k)=cholupdate(R0,X(:,i),'+');
@@ -788,7 +861,14 @@ for i=sample_idx
                     x_avg_tmp(:,k) = X(:,i);
                     logdet(k)=2*sum(log(diag(Rtmp(:,:,k))));
                 case 'VAR'
-                    % stuff
+                    cSbb_tmp(:,:,k) = chol(R_inv + Xpast(:,i)*Xpast(:,i)');
+                    Sxb_tmp(:,:,k) = X(:,i)*Xpast(:,i)';
+                    Sxx_tmp(:,:,k) = X(:,i)*X(:,i)' + Sigma0;
+                    Sxbx = Sxb_tmp(:,:,k)/cSbb_tmp(:,:,k);
+                    Shat = Sxx_tmp(:,:,k) - Sxbx*Sxbx';
+                    % Calculate new log-determinant contribution
+                    logdet(k)=-p*sum(log(diag(cSbb_tmp(:,:,k)))) - ...
+                        (v0+1)*sum(log(diag(chol(Shat))));
             end
         end
     end
@@ -849,14 +929,25 @@ for i=sample_idx
                 logPnew=logPrior-(nn/2.*logdet-nn*p/2*log(2)-mvgammaln(p,nn/2))...
                       -p/2*(log(lambda)-log(([sumZ+1 1]+lambda)));
             case 'VAR'
-                % stuff
+                logPnew=logPrior+logdet+nn*p/2*log(2)+mvgammaln(p,nn/2);
         end
         logDif=logPnew-logP+log(r);
         PP=exp(logDif-max(logDif));
         
         %%% DEBUG %%%
         if par.debug
-            passed = logJointTest_Gibbs(i,z,logDif,r,par,beta,comp);
+            
+            switch par.emission_type
+                case 'VAR'
+                    ss.cSbb = cSbb_tmp;
+                    ss.Sxx = Sxx_tmp;
+                    ss.Sxb = Sxb_tmp;
+                    
+                case {'ZMG','SSM'}
+                    ss = struct();
+                
+            end
+            passed = logJointTest_Gibbs(i,z,logDif,r,par,beta,comp,ss);
         end
         %%% DEBUG END %%%
         
@@ -909,9 +1000,9 @@ for i=sample_idx
                 logPnew=logPrior-(nn/2.*logdet(comp)-nn*p/2*log(2)-mvgammaln(p,nn/2));
             case 'SSM'
                 logPnew=logPrior-(nn/2.*logdet(comp)-nn*p/2*log(2)-mvgammaln(p,nn/2))...
-                    -p/2*(log(lambda)-log(sumZ(comp)+lambda));
+                    -p/2*(log(lambda)-log( (sumZ(comp)+1)+lambda));
             case 'VAR'
-                % stuff
+                logPnew=logPrior+logdet(comp)+nn*p/2*log(2)+mvgammaln(p,nn/2);
         end
         
         logDif=logPnew-logP(comp)+log(r(comp));
@@ -967,7 +1058,9 @@ for i=sample_idx
             R_avg(:,:,z(i))=Rtmp(:,:,z(i));
             x_avg(:,z(i)) = x_avg_tmp(:,z(i));
         case 'VAR'
-            % stuff
+            cSbb(:,:,z(i)) = cSbb_tmp(:,:,z(i));
+            Sxb(:,:,z(i)) = Sxb_tmp(:,:,z(i));
+            Sxx(:,:,z(i)) = Sxx_tmp(:,:,z(i));
     end
     
     
@@ -983,7 +1076,9 @@ for i=sample_idx
     % Delete empty clusters
     idx_empty=sort(find(sumZ==0),'descend');
     for ii = idx_empty
-        disp(['Deleting cluster ' num2str(ii) ' - Its empty!'])
+        if par.verbose
+            disp(['Deleting cluster ' num2str(ii) ' - Its empty!'])
+        end
         z(z>ii)=z(z>ii)-1;
         
         switch par.emission_type
@@ -993,7 +1088,9 @@ for i=sample_idx
             R_avg(:,:,ii) = [];
             x_avg(:,ii) = [];
         case 'VAR'
-            % stuff
+            cSbb(:,:,ii) = [];
+            Sxb(:,:,ii) = [];
+            Sxx(:,:,ii) = [];
         end
     
         N_trans(ii,:)=[];
@@ -1021,7 +1118,9 @@ case 'SSM'
     par.R_avg=R_avg;
     par.x_avg=x_avg;    
 case 'VAR'
-    % stuff
+    par.cSbb = cSbb;
+    par.Sxb = Sxb;
+    par.Sxx = Sxx;
 end
     
 par.sumZ=sumZ;
@@ -1033,6 +1132,7 @@ logP=logP(1:K);
 %%---------------------------------------------
 function [logP,par]=initializePar(X,z,par)
 % Initalizes par struct ready for computation
+global Xpast
 p = par.p;
 
 switch par.emission_type
@@ -1047,7 +1147,6 @@ switch par.emission_type
         logdet=zeros(1,length(val));
         for k=1:length(val)
             idx=(z==val(k));
-            z(idx)=k;
             sumZ(k)=sum(idx);
             R_avg(:,:,k)=chol(X(:,idx)*X(:,idx)'+par.Sigma0);
             logdet(k)=2*sum(log(diag(R_avg(:,:,k))));
@@ -1071,7 +1170,6 @@ switch par.emission_type
         logdet=zeros(1,length(val));
         for k=1:length(val)
             idx=(z==val(k));
-            z(idx)=k;
             sumZ(k)=sum(idx);
             x_avg(:,k) = sum(X(:,idx),2);
             R_avg(:,:,k)=chol(X(:,idx)*X(:,idx)'+par.Sigma0 + ...
@@ -1087,6 +1185,40 @@ switch par.emission_type
         par.x_avg = x_avg;
         par.logPrior = logPrior;
         par.sumZ=sumZ;
+        
+    case 'VAR'
+        M = par.M;
+        R_inv = kron(diag(1./par.tau_M),eye(p));
+        logPrior=p/2*sum(log(diag(R_inv)))+par.v0*sum(log(diag(chol(par.Sigma0))))...
+            -par.v0*p/2*log(2)-mvgammaln(p,par.v0/2);
+        val=unique(z);
+        cSbb = zeros(p*M,p*M,length(val));
+        Sxb = zeros(p,p*M,length(val));
+        Sxx = zeros(p,p,length(val));
+        sumZ=zeros(1,length(val));
+        logP=zeros(1,length(val));
+        logdet=zeros(1,length(val));
+        
+        for k=1:length(val)
+            idx=(z==val(k));
+            sumZ(k)=sum(idx);
+            cSbb(:,:,k) = chol(Xpast(:,idx)*Xpast(:,idx)' + R_inv);
+            Sxb(:,:,k) = X(:,idx)*Xpast(:,idx)';
+            Sxx(:,:,k) = X(:,idx)*X(:,idx)'+par.Sigma0;
+            Sxbx = Sxb(:,:,k)/cSbb(:,:,k);
+            Shat = Sxx(:,:,k) - Sxbx*Sxbx';
+            vnew = sumZ(k)+par.v0;
+            logdet(k)=-p*sum(log(diag(cSbb(:,:,k))))-vnew*sum(log(diag(chol(Shat))));
+            logP(k)=logPrior + logdet(k) + vnew*p/2*log(2)+mvgammaln(p,vnew/2);
+        end
+        
+        par.cSbb = cSbb;
+        par.Sxb = Sxb;
+        par.Sxx = Sxx;
+        par.R_inv = R_inv;
+        par.logPrior = logPrior;
+        par.sumZ=sumZ;
+        
     otherwise
         error('Unknown Emission Model :: Use ZMG, SSM or VAR')
         
@@ -1094,7 +1226,7 @@ end
 
 %%---------------------------------------------
 function [par_new,logdet] = calcEmissionSufficients(X,z,par,split_or_merge,comp)
-%global Xtrue
+global Xpast
 if nargin < 3
    split_or_merge = 'none';
    comp = [];
@@ -1138,6 +1270,34 @@ par_new = par;
                     
                     % Contribution to logJoint
                     logdet(comp(1))=2*sum(log(diag(par_new.R_avg(:,:,comp(1)))));
+                
+                case 'VAR'
+                    % Unpack
+                    R_inv = par.R_inv;
+                    Sigma0 = par.Sigma0;
+                    v0 = par.v0;
+                    p = par.p;
+                    
+                    % New sufficients
+                    par_new.cSbb(:,:,comp(1)) = chol(Xpast(:,z==comp(1))*Xpast(:,z==comp(1))'...
+                        + Xpast(:,z==comp(2))*Xpast(:,z==comp(2))'+ R_inv);
+                    par_new.cSbb(:,:,comp(2)) = [];
+                    
+                    par_new.Sxb(:,:,comp(1)) = X(:,z==comp(1))*Xpast(:,z==comp(1))'...
+                        + X(:,z==comp(2))*Xpast(:,z==comp(2))';
+                    par_new.Sxb(:,:,comp(2)) = [];
+                    
+                    par_new.Sxx(:,:,comp(1)) = X(:,z==comp(1))*X(:,z==comp(1))'...
+                        + X(:,z==comp(2))*X(:,z==comp(2))' + Sigma0;
+                    par_new.Sxx(:,:,comp(2)) = [];
+                    
+                    
+                    % Contribution to logJoint
+                    Sxbx = par_new.Sxb(:,:,comp(1) )/par_new.cSbb(:,:,comp(1) );
+                    Shat = par_new.Sxx(:,:,comp(1)) - Sxbx*Sxbx';
+        
+                    logdet(comp(1))=-p*sum(log(diag(par_new.cSbb(:,:,comp(1))))) - ...
+                    (v0+par_new.sumZ(comp(1)))*sum(log(diag(chol(Shat))));
             end
             
         case 'split'
@@ -1180,6 +1340,34 @@ par_new = par;
                     % Log joint contribution
                     logdet(comp(1))=2*sum(log(diag(par_new.R_avg(:,:,comp(1)))));
                     logdet(comp(2))=2*sum(log(diag(par_new.R_avg(:,:,comp(2)))));
+                    
+                case 'VAR'
+                    % Unpack 
+                    R_inv = par.R_inv;
+                    Sigma0 = par.Sigma0;
+                    v0 = par.v0;
+                    p = par.p;
+                    
+                    
+                    % New sufficients
+                    par_new.cSbb(:,:,comp(1)) = chol(Xpast(:,idx1)*Xpast(:,idx1)' + R_inv);
+                    par_new.Sxb(:,:,comp(1)) = X(:,idx1)*Xpast(:,idx1)';
+                    par_new.Sxx(:,:,comp(1)) = X(:,idx1)*X(:,idx1)' + Sigma0;
+    
+                    par_new.cSbb(:,:,comp(2)) = chol(Xpast(:,idx2)*Xpast(:,idx2)' + R_inv);
+                    par_new.Sxb(:,:,comp(2)) = X(:,idx2)*Xpast(:,idx2)';
+                    par_new.Sxx(:,:,comp(2)) = X(:,idx2)*X(:,idx2)' + Sigma0;
+                    
+                    % Log joint contribution
+                    Sxbx = par_new.Sxb(:,:,comp(1))/par_new.cSbb(:,:,comp(1));
+                    Shat = par_new.Sxx(:,:,comp(1)) - Sxbx*Sxbx';
+                    logdet(comp(1)) = -p*sum(log(diag(par_new.cSbb(:,:,comp(1))))) - ...
+                    (v0+par_new.sumZ(comp(1)))*sum(log(diag(chol(Shat))));
+                    
+                    Sxbx = par_new.Sxb(:,:,comp(2))/par_new.cSbb(:,:,comp(2));
+                    Shat = par_new.Sxx(:,:,comp(2)) - Sxbx*Sxbx';
+                    logdet(comp(2)) = -p*sum(log(diag(par_new.cSbb(:,:,comp(2))))) - ...
+                    (v0+par_new.sumZ(comp(2)))*sum(log(diag(chol(Shat))));
             end
             
             
@@ -1215,8 +1403,149 @@ for k=1:max(z)
 end
 %eof
 
+%%-----------------------------------------------
+function post_samples = sampleParameterPosteriors(post_samples,z,par)
+% Function samples parameter posterior and returns the sample struct
+p = par.p;
+K = max(z);
+
+switch par.emission_type
+    case 'ZMG'
+      postSIGK = zeros(p,p,K);
+        % Sample Sigma
+        for k = 1:K
+            S = par.R_avg(:,:,k)'*par.R_avg(:,:,k);
+            if ~issymmetric(S)
+                warning('Sufficient statistics for Sigma is not symmetric!')
+                warning('Symmetricizing...')
+                S = (S+S')/2;
+            end
+            postSIGK(:,:,k) = iwishrnd(S,par.v0+par.sumZ(k));
+        end
+        post_samples.S{end+1} = postSIGK;
+        
+    case 'SSM'
+        mu0 = par.mu0;
+        lambda = par.lambda;
+        
+        postMU = zeros(p,K);
+        postSIGK = zeros(p,p,K);
+        for k = 1:K
+            % Sample Covariance
+            S = par.R_avg(:,:,k)'*par.R_avg(:,:,k);
+            postSIGK(:,:,k) = iwishrnd(S,par.v0+par.sumZ(k));
+            
+            % Sample Mean
+            muk = 1/(par.sumZ(k)+lambda)*par.x_avg(:,k) + lambda*mu0;
+            postMU(:,k) = mvnrnd(muk',1/(lambda+par.sumZ(k))*postSIGK(:,:,k))';
+        end
+        post_samples.M{end+1} = postMU;
+        post_samples.S{end+1} = postSIGK;
+        
+    case 'VAR'
+        M = par.M;
+        
+        Shat = zeros(p,p,K);
+        postSIGK = zeros(p,p,K);
+        postA = zeros(p,p*M,K);
+        % Sample Sigma
+        for k = 1:K
+            Sxbx = par.Sxb(:,:,k)/par.cSbb(:,:,k);
+            Shat(:,:,k) = par.Sxx(:,:,k) - Sxbx*Sxbx';
+            if ~issymmetric(Shat(:,:,k)) % due to numerical instabilities
+                warning('Sufficient statistics for Sigma is not symmetric!')
+                warning('Symmetricizing...')
+                Shat(:,:,k) = (Shat(:,:,k)+Shat(:,:,k)')/2;
+            end
+            postSIGK(:,:,k) = iwishrnd(Shat(:,:,k),par.v0+par.sumZ(k));
+        end
+        
+        % Sample A
+        for k = 1:K
+            postA(:,:,k) = sample_matrixNormal(par.Sxb(:,:,k)/par.cSbb(:,:,k)/par.cSbb(:,:,k)',...
+                postSIGK(:,:,k),par.cSbb(:,:,k)^(-1)/par.cSbb(:,:,k)');
+        end
+        
+        post_samples.S{end+1} = postSIGK;
+        post_samples.A{end+1} = postA;
+end
+
+% Sample Transition matrix
+if ~par.const_state
+    trans = SampleTransitionMatrix(z,par.alpha*par.beta(1:end-1),par.kappa);
+    post_samples.Pi{end+1} = trans;
+end
+% Save everything
+post_samples.z{end+1} = z;
+post_samples.par{end+1} = par;
+%eof
+
+
+%%-----------------------------------------------
+function E = calcExpectations(par)
+% Expectation of emission parameters
+switch par.emission_type
+    case 'ZMG'
+        p = par.p;
+        K = size(par.R_avg,3);
+        E.S = zeros(p,p,K);
+        for k = 1:K
+            S = par.R_avg(:,:,k)'*par.R_avg(:,:,k);
+            if ~issymmetric(S)
+                warning('Sufficient statistics for Sigma is not symmetric!')
+                warning('Symmetricizing...')
+                S = (S+S')/2;
+            end
+            E.S(:,:,k) = S/(par.sumZ(k)-1);
+        end
+        
+    case 'SSM'
+        p = par.p;
+        K = size(par.R_avg,3);
+        
+        E.S = zeros(p,p,K);
+        E.M = zeros(p,K);
+        for k = 1:K
+            % Covariance
+            S = par.R_avg(:,:,k)'*par.R_avg(:,:,k);
+            if ~issymmetric(S)
+                warning('Sufficient statistics for Sigma is not symmetric!')
+                warning('Symmetricizing...')
+                S = (S+S')/2;
+            end
+            E.S(:,:,k) = S/(par.sumZ(k)-1);
+            
+            % Mean
+            E.M(:,k) = 1/(par.sumZ(k)+par.lambda)*par.x_avg(:,k)...
+                + par.lambda*par.mu0;
+        end
+        
+    case 'VAR'
+        p = par.p;
+        K = size(par.Sxx,3);
+        
+        E.S = zeros(p,p,K);
+        E.A = zeros(p,p*par.M,K);
+        for k = 1:K
+            % Covariance
+            Sxbx = par.Sxb(:,:,k)/par.cSbb(:,:,k);
+            Shat = par.Sxx(:,:,k) - Sxbx*Sxbx';
+            if ~issymmetric(Shat) % due to numerical instabilities
+                warning('Sufficient statistics for Sigma is not symmetric!')
+                warning('Symmetricizing...')
+                Shat = (Shat+Shat')/2;
+            end
+            E.S(:,:,k) = Shat/(par.sumZ(k)-1);
+            
+            % VAR coefficients
+            E.A(:,:,k) = par.Sxb(:,:,k)/par.cSbb(:,:,k)/par.cSbb(:,:,k)';
+        end
+end
+%eof
+
+%%-----------------------------------------------
 function [logProb,logM] = evalLogJoint(z,par)
-global Xtrue
+global Xtrue Xpast
 
 % Evaluates LogJoint excluding hyperparameters
 v0=par.v0;
@@ -1224,11 +1553,10 @@ Sigma0=par.Sigma0;
 p = par.p;
 N = par.N;
 begin_i = par.begin_i;
-logPrior=v0/2*log(det(Sigma0)) - v0*p/2*log(2)...
-            -mvgammaln(p,v0/2);
 
 switch par.emission_type
     case 'ZMG'
+        logPrior=v0/2*log(det(Sigma0)) - v0*p/2*log(2)-mvgammaln(p,v0/2);
         for k=1:max(z)
             idx=(z==k);
             sumZ(k)=sum(idx);
@@ -1238,6 +1566,7 @@ switch par.emission_type
             logP(k)=logPrior-(nn/2*logdet(k)-nn*p/2*log(2)-mvgammaln(p,nn/2));
         end
     case 'SSM'
+        logPrior=v0/2*log(det(Sigma0)) - v0*p/2*log(2)-mvgammaln(p,v0/2);
         lambda = par.lambda;
         mu0 = par.mu0;
 
@@ -1252,6 +1581,25 @@ switch par.emission_type
             logP(k)=logPrior-(nn/2*logdet(k)-nn*p/2*log(2)-mvgammaln(p,nn/2))...
                 -p/2*(log(lambda)-log((sumZ(k)+lambda)));
         end
+        
+    case 'VAR'
+        R_inv = par.R_inv;
+        logPrior=p/2*sum(log(diag(R_inv)))+v0*sum(log(diag(chol(Sigma0))))...
+            - v0*p/2*log(2)-mvgammaln(p,v0/2);
+        
+        for k=1:max(z)
+            idx=(z==k);
+            sumZ(k)=sum(idx);
+            cSbb(:,:,k) = chol(Xpast(:,idx)*Xpast(:,idx)' + R_inv);
+            Sxb(:,:,k) = Xtrue(:,idx)*Xpast(:,idx)';
+            Sxx(:,:,k) = Xtrue(:,idx)*Xtrue(:,idx)' + Sigma0;
+            Sxbx = Sxb(:,:,k)/cSbb(:,:,k);
+            Shat = Sxx(:,:,k) - Sxbx*Sxbx';
+            vnew = sumZ(k)+v0;
+            logdet(k)=-p*sum(log(diag(cSbb(:,:,k))))-vnew*sum(log(diag(chol(Shat))));
+            logP(k)=logPrior + logdet(k) + vnew*p/2*log(2)+mvgammaln(p,vnew/2);
+        end
+
 end
 
 
@@ -1273,9 +1621,13 @@ par_tmp.N_trans = N_trans;
 logM=TransitionP(par_tmp,z);
 
 logProb=sum(logP)+logM;
+if strcmp(par.emission_type,'VAR')
+    logProb=logProb-sum(log(par.tau_M));
+end
 %eof
 
-function passed = logJointTest_Gibbs(i,z,logDif,r,par,beta,comp)
+function passed = logJointTest_Gibbs(i,z,logDif,r,par,beta,comp,ss)
+global Xtrue
 % join-likelihood test
 tol_test = 1e-8; % tolerance on log-likelihood test
 par1 = par; par2 = par;
@@ -1346,6 +1698,21 @@ if ~passed
         disp(['Transition difference conditional: ' num2str(log(r(z_pos(i1))) - log(r(z_pos(i2))))])
         disp(['Observed model difference full: ' num2str(logJointTest_1 -logTransTest_1 - logJointTest_2 + logTransTest_2)])
         disp(['Observed model difference conditional: ' num2str(logDif(i1) - log(r(z_pos(i1))) - logDif(i2) + log(r(z_pos(i2))))])
+        
+        %%% EXTRA DEBUG - REMOVE!!!
+        if i1<=max(z) && i2<=max(z) && nargin>7
+            [~,par11] = initializePar(Xtrue,z1,par);
+            [~,par22] = initializePar(Xtrue,z2,par);
+            fprintf(' ------ CLUSTER %d ------', i1)
+            ss.cSbb(:,:,i1)-par11.cSbb(:,:,i1)
+            ss.Sxx(:,:,i1)-par11.Sxx(:,:,i1)
+            ss.Sxb(:,:,i1)-par11.Sxb(:,:,i1)
+
+            fprintf(' ------ CLUSTER %d ------', i2)
+            ss.cSbb(:,:,i2)-par11.cSbb(:,:,i2)
+            ss.Sxx(:,:,i2)-par11.Sxx(:,:,i2)
+            ss.Sxb(:,:,i2)-par11.Sxb(:,:,i2)
+        end
         keyboard
     end
 end
