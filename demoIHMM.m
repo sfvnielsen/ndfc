@@ -30,3 +30,16 @@ opts.emission_type = 'SSM';
 [z, E, LL, par,samp]=IHMMgibbs(X,opts);
 
 
+figure, subplot (1,2,1)
+bar(zt)
+title('True State Sequence')
+subplot(1,2,2)
+bar(z)
+title('Estimated State Sequence')
+
+
+%% Predictive likelihood on test data
+predictiveLikelihood(X_test,samp)
+
+
+pred

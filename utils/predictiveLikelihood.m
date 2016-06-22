@@ -1,4 +1,4 @@
-function [avg_llike,llike] = predictiveLikelihood(X,post_samples,model)
+function [avg_llike,llike] = predictiveLikelihood(X,post_samples)
 % Calculates the predictive likelihood of data X (dimension p * T)
 % Based on a modified Viterbi-algorithm
 % INPUT:
@@ -10,13 +10,6 @@ function [avg_llike,llike] = predictiveLikelihood(X,post_samples,model)
 %                 Pi - Transition matrix
 %                 z - state sequence
 %
-%          model - struct with fields:
-%                 M - model order
-%                 noise - bool if model was estimated with time dependent
-%                         noise
-%                 const_state - bool if model was forced to const state
-%                               sequence. If const_state is true
-%                               post_samples.Pi is an empty cell array
 %
 % OUTPUT:
 %           avg_llike - the avg log-likelihood over all samples
@@ -24,20 +17,15 @@ function [avg_llike,llike] = predictiveLikelihood(X,post_samples,model)
 %                     each sample
 % Written by: Søren Føns Vind Nielsen, Technical University of Denmark, 2015
 
-if nargin < 3 % default model parameters
-    model.const_state = false;
-    model.noise = false;
-end
-
-if isfield(model,'M')
-    M = model.M;
-else
-    M = 0;
-end
 
 [p,T] = size(X);
 n_samples = length(post_samples.S);
 llike = nan(n_samples,1);
+if isfield(post_samples,'A')
+    M = ceil( size(post_samples.A{1},2)/p);
+else
+    M = 0;
+end
 
 if M>0
     % Extract past based on model order of each process (M)
@@ -64,9 +52,8 @@ for n = 1:n_samples
         cS(:,:,k) = chol(cS(:,:,k));
     end
     
-    if ~model.const_state
-        Trans = post_samples.Pi{n};
-    end
+    Trans = post_samples.Pi{n};
+    
     
     % If initial state distribution is sampled...
     if isfield(post_samples,'emp_state')
@@ -81,27 +68,22 @@ for n = 1:n_samples
         A = post_samples.A{n};
         MU = zeros(p,size(X,2),K);
         for k = 1:K
-           MU(:,:,k) = A(:,:,k)*X_past; 
+            MU(:,:,k) = A(:,:,k)*X_past;
         end
     elseif isfield(post_samples,'mu')
         mu = post_samples.mu{n};
         MU = zeros(p,size(X,2),K);
         for k = 1:K
-           MU(:,:,k) = repmat(mu(:,k),[1,size(X,2)]); 
+            MU(:,:,k) = repmat(mu(:,k),[1,size(X,2)]);
         end
     else
         MU = zeros(p,size(X,2),K);
-    end    
+    end
     
     % Calculate all emissions
     emission = nan(K,T);
-    
     for k = 1:K
-        if ~model.noise
-            emission(k,:) = evalLoglLike(X,MU(:,:,k),cS(:,:,k));
-        else
-            emission(k,:) = evalCollapsedLogLike(X,MU(:,:,k),cS(:,:,k));
-        end
+        emission(k,:) = evalLoglLike(X,MU(:,:,k),cS(:,:,k));
     end
     
     % Initialize Viterbi chain V
@@ -115,7 +97,7 @@ for n = 1:n_samples
         for k = 1:max(z)
             % Sum previous Viterbi state times transition and multiply with
             % emission
-            if ~model.const_state
+            if K>1
                 V(k,t) = lsum(V(:,t-1)+ log(Trans(:,k)),1) + emission(k,t);
             else
                 V(k,t) = lsum(V(:,t-1),1) + emission(k,t);
@@ -129,13 +111,6 @@ end
 % Return avg of all samples
 avg_llike =  lsum(llike,1)-log(n_samples);
 %eof
-end
-
-function ll = evalCollapsedLogLike(x,MU,cS)
-% NB! cS is assumed to be Cholesky factorized
-p = size(x,1);
-pX=(x-MU)'/cS;
-ll = -sum(log(diag(cS))) + gammaln((p-1)/2) - (p-1)/2*log(1/2*sum(pX.*pX,2) );
 end
 
 function ll = evalLoglLike(x,MU,cS)
