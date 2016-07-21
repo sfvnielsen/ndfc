@@ -69,7 +69,9 @@ function [z_mj, E, LL, par_mj,post_samples]=IHMMgibbs(X,opts,sampling_state)
 % par_mj      parameter struct from MAP solution
 % post_samples parameter posterior samples (wrapped in struct)
 %
+% Feel free to use the code but please throw a reference of some kind :-)
 % This code is provided as is without any kind of warranty or liability!
+%
 %
 % Written by: Morten Mørup and Søren Føns Vind Nielsen
 % Technical University of Denmark, Spring 2016
@@ -193,19 +195,6 @@ end
 % cluster
 [logP,par] = initializePar(X,z,par);
 par.begin_i = begin_i;
-
-% State sequence parameters
-Z=sparse(z,1:N,ones(1,N),max(z),N);
-N_trans=full(Z(:,1:end-1)*Z(:,2:end)');
-begin_i_tmp=find(begin_i);
-% all begin_i timepoints are assumed to come from state 1
-for tt = 1:length(begin_i_tmp)
-    N_trans(1,z(begin_i_tmp(tt))) =  N_trans(1,z(begin_i_tmp(tt))) +1;
-end
-begin_i_tmp(begin_i_tmp==1)=[];
-N_trans=N_trans-Z(:,begin_i_tmp-1)*Z(:,begin_i_tmp)';
-
-par.N_trans=N_trans;
 par.const_state = const_state;
 par.debug = debug;
 par.debug_print = debug_print;
@@ -367,7 +356,7 @@ end
 %--------------------------------------------------------------------
 function [z,par,logP]=split_merge_sample(X,z,logP,par,max_annealing)
 % Split-merge sampling of state assignments
-if par.debug
+if par.debug && par.verbose
     disp('Starting split-merge sampler...')
 end
 p=par.p;
@@ -397,7 +386,7 @@ if z(i1)>z(i2)
 end
 
 if z(i1)==z(i2) % Split move
-    if par.debug
+    if par.debug && par.verbose
         disp('Considering Split move....')
     end
     % generate split configuration
@@ -418,15 +407,7 @@ if z(i1)==z(i2) % Split move
     nlogL_beta = betalike([1, par.gamma],b_stick);
     par_t.beta(end+1) = (1-b_stick)*par_t.beta(end);
     par_t.beta(end-1) = b_stick*par_t.beta(end-1);
-    Z=sparse(z_t,1:N,ones(1,N),max(z_t),N);
-    N_trans=full(Z(:,1:end-1)*Z(:,2:end)');
-    begin_i_tmp=find(par.begin_i);
-    % all begin_i timepoints are assumed to come from state 1
-    for tt = 1:length(begin_i_tmp)
-        N_trans(1,z_t(begin_i_tmp(tt))) =  N_trans(1,z_t(begin_i_tmp(tt)))+1;
-    end
-    begin_i_tmp(begin_i_tmp==1)=[];
-    par_t.N_trans=N_trans-Z(:,begin_i_tmp-1)*Z(:,begin_i_tmp)';
+    par_t.N_trans = calcTransition(z_t,par);
     
     % calculate new log probability for each of the new clusters
     switch par.emission_type
@@ -499,30 +480,24 @@ if z(i1)==z(i2) % Split move
         logP=logP_t;
     end
 else % merge move
-    if par.debug
+    if par.debug && par.verbose
         disp('Considering Merge move....')
     end
     % Emission sufficients for merge move
     comp = [z(i1) z(i2)];
     [par_new,logdet] = calcEmissionSufficients(X,z,par,'merge',comp);
     
-    % Transition sufficients
-    N_trans_new=par.N_trans;
-    N_trans_new(z(i1),:)=N_trans_new(z(i1),:)+N_trans_new(z(i2),:);
-    N_trans_new(:,z(i1))=N_trans_new(:,z(i1))+N_trans_new(:,z(i2));
-    N_trans_new(z(i2),:)=[];
-    N_trans_new(:,z(i2))=[];
-    
-    par_new.beta(z(i1))=par.beta(z(i1));
-    par_new.beta(end)=par_new.beta(end)+par.beta(z(i2));
-    par_new.beta(z(i2))=[];
-    par_new.N_trans=N_trans_new;
-    
     % evaluate merge configuration
     idx = (z==z(i1) | z==z(i2));
     z_new=z;
     z_new(idx)=z(i1);
     z_new(z_new>z(i2))=z_new(z_new>z(i2))-1;
+    
+    % transition
+    par_new.beta(z(i1))=par.beta(z(i1));
+    par_new.beta(end)=par_new.beta(end)+par.beta(z(i2));
+    par_new.beta(z(i2))=[];
+    par_new.N_trans = calcTransition(z_new,par_new);
 
     logP_new=logP;
     switch par.emission_type
@@ -540,6 +515,14 @@ else % merge move
     end
     logP_new(comp(2))=[];
     
+    %%% DEBUG %%%
+    if any(par_new.N_trans(:)<0)
+        disp('N_trans is ....')
+        keyboard
+    end
+    %%% DEBUG END %%%
+    
+    
     logM_new=TransitionP(par_new,z_new);
     logM=TransitionP(par,z);
     
@@ -553,15 +536,7 @@ else % merge move
         z_t(idx)=comp(ceil(2*rand(sum(idx),1)));
         z_t(i1)=z(i1);
         z_t(i2)=z(i2);
-        Z=sparse(z_t,1:N,ones(1,N),max(z_t),N);
-        N_trans=full(Z(:,1:end-1)*Z(:,2:end)');
-        begin_i_tmp=find(par.begin_i);
-        % all begin_i timepoints are assumed to come from state 1
-        for tt = 1:length(begin_i_tmp)
-            N_trans(1,z_t(begin_i_tmp(tt))) =  N_trans(1,z_t(begin_i_tmp(tt))) +1;
-        end
-        begin_i_tmp(begin_i_tmp==1)=[];
-        N_trans=N_trans-Z(:,begin_i_tmp-1)*Z(:,begin_i_tmp)';
+        N_trans = calcTransition(z_t,par);
         
         idx(i1)=false;
         idx(i2)=false;
@@ -662,18 +637,18 @@ for ii = idx_empty
         case 'SSM'
             par.R_avg(:,:,idx_empty)=[];
             par.x_avg(:,:,idx_empty)=[];
+        case 'VAR'
+            par.cSbb(:,:,ii) = [];
+            par.Sxb(:,:,ii) = [];
+            par.Sxx(:,:,ii) = [];
     end
     logP(ii)=[];
     par.sumZ(ii)=[];
     par.beta(end)=par.beta(end)+par.beta(ii);
     par.beta(ii)=[];
     z(z>ii)=z(z>ii)-1;
-    if ii == 1 % if we remove cluster 1 then the transitions to begin_i must be added to the new cluster 1
-        for it = find(begin_i)
-            N_trans(1,z(it)) =  N_trans(1,z(it))+1;
-        end
-    end
 end
+par.N_trans = calcTransition(z,par);
 %eof
 
 %----------------------------------------------------------------------------
@@ -681,7 +656,7 @@ function [z,par,logP,logQ]=gibbs_sample(X,z,logP,par,max_annealing,sample_idx,co
 % Gibbs sampler for state assignments
 % NB! Also used for restricted gibbs sampling (using the comp variable)
 global Xpast
-if par.debug && nargin<7
+if par.debug && nargin<7 && par.verbose
     disp('Starting Gibbs sampler...')
 end
 if nargin<8
@@ -1046,7 +1021,6 @@ for i=sample_idx
         beta(end-1) = b_stick*beta(end-1);
         K=K+1;
         sumZ(z(i))=1;
-        N_trans(z(i),z(i))=0;
     else
         sumZ(z(i))=sumZ(z(i))+1;
     end
@@ -1062,17 +1036,7 @@ for i=sample_idx
             Sxb(:,:,z(i)) = Sxb_tmp(:,:,z(i));
             Sxx(:,:,z(i)) = Sxx_tmp(:,:,z(i));
     end
-    
-    
-    if ~isempty(z_before)
-        N_trans(z_before,z(i))=N_trans(z_before,z(i))+1;
-    else
-        N_trans(1,z(i)) = N_trans(1,z(i)) + 1;
-    end
-    if ~isempty(z_after)
-        N_trans(z(i),z_after)=N_trans(z(i),z_after)+1;
-    end
-    
+
     % Delete empty clusters
     idx_empty=sort(find(sumZ==0),'descend');
     for ii = idx_empty
@@ -1092,20 +1056,15 @@ for i=sample_idx
             Sxb(:,:,ii) = [];
             Sxx(:,:,ii) = [];
         end
-    
-        N_trans(ii,:)=[];
-        N_trans(:,ii)=[];
+
         logP(ii)=[];
         sumZ(ii)=[];
         beta(end)=beta(end)+beta(ii);
         beta(ii)=[];
         K=K-1;
-        if ii == 1 % if we remove cluster 1 then the transitions to begin_i must be added to the new cluster 1
-            for it = find(begin_i)'
-                N_trans(1,z(it)) =  N_trans(1,z(it))+1;
-            end
-        end
     end
+    % Update transition matrix lastly...
+    N_trans = calcTransition(z,par);
     
 end
 
@@ -1220,9 +1179,26 @@ switch par.emission_type
         par.sumZ=sumZ;
         
     otherwise
-        error('Unknown Emission Model :: Use ZMG, SSM or VAR')
-        
+        error('Unknown Emission Model :: Use ZMG, SSM or VAR')     
 end
+% Calculate transition matrix
+par.N_trans = calcTransition(z,par);
+    
+
+%%---------------------------------------------
+function N_trans = calcTransition(z,par)
+N = par.N;
+begin_i = par.begin_i;
+Z=sparse(z,1:N,ones(1,N),max(z),N);
+N_trans=full(Z(:,1:end-1)*Z(:,2:end)');
+begin_i_tmp=find(begin_i);
+% all begin_i timepoints are assumed to come from state 1
+for tt = 1:length(begin_i_tmp)
+    N_trans(1,z(begin_i_tmp(tt))) =  N_trans(1,z(begin_i_tmp(tt))) +1;
+end
+begin_i_tmp(begin_i_tmp==1)=[];
+N_trans=N_trans-Z(:,begin_i_tmp-1)*Z(:,begin_i_tmp)';
+
 
 %%---------------------------------------------
 function [par_new,logdet] = calcEmissionSufficients(X,z,par,split_or_merge,comp)
@@ -1604,16 +1580,7 @@ end
 
 
 % Recalc N_trans
-Z=sparse(z,1:N,ones(1,N),max(z),N);
-N_trans=full(Z(:,1:end-1)*Z(:,2:end)');
-begin_i_tmp=find(begin_i);
-% all begin_i timepoints are assumed to come from state 1
-for tt = 1:length(begin_i_tmp)
-    N_trans(1,z(begin_i_tmp(tt))) =  N_trans(1,z(begin_i_tmp(tt))) +1;
-end
-begin_i_tmp(begin_i_tmp==1)=[];
-N_trans=N_trans-Z(:,begin_i_tmp-1)*Z(:,begin_i_tmp)';
-
+N_trans = calcTransition(z,par);
 
 par_tmp = par;
 par_tmp.N_trans = N_trans;
