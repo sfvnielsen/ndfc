@@ -1,5 +1,7 @@
 %% Demo script for IHMM
-p = 5;
+addpath utils/
+
+p = 10;
 T_SCALE = 500;
 N=T_SCALE*[0.4 0.3 0.2 0.1];
 ZS = [1,2,3,1];
@@ -41,5 +43,3 @@ title('Estimated State Sequence')
 %% Predictive likelihood on test data
 predictiveLikelihood(X_test,samp)
 
-
-pred
