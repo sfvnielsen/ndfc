@@ -1,10 +1,9 @@
 function [z, E_Sigma, LL, par, noc_iter]=wishartMM(X,n,opts)
-
 % Input
-% X        array of covariance matrices
+% X        array of covariance matrices (p x p x number of matrices)
 % n        vector of the number of observations for which each covariance matrix is based
 %          on
-% opts.    struct with fieds:
+% opts.    struct with fields:
 %
 %
 % Ouput
@@ -20,15 +19,11 @@ if ndims(X)>2
 else
     [p,N]=size(X);
 end
-%const=0;
-%for i=1:size(X,3)    
-%    const=const+(n(i)-p-1)/2*sum(log(det(X(:,:,i))))-n(i)*p/2*log(2)-mvgammaln(p,n(i)/2);
-%end
-
 
 if isfield(opts,'Kinit'); Kinit=opts.Kinit; else Kinit=ceil(log(N)); end
 if isfield(opts,'z'); z=opts.z; else z=ceil(Kinit*rand(N,1)); end
-if isfield(opts,'Sigma0'); Sigma0=opts.Sigma0; else Sigma0=p*eye(p); end
+if isfield(opts,'eta'); eta=opts.eta; else eta=p; end
+Sigma0 = eta*eye(p);
 if isfield(opts,'v0'); v0=opts.v0; else v0=p; end
 if isfield(opts,'maxiter'); maxiter=opts.maxiter; else maxiter=100; end; 
 if isfield(opts,'alpha'); alpha=opts.alpha; else alpha=log(N); end; 
@@ -57,6 +52,7 @@ for k=1:length(val)
 end
 LL=nan(1,maxiter);
 noc_iter=nan(1,maxiter);
+par.eta = eta;
 par.n_avg=n_avg;
 par.sumZ=sumZ;
 par.Sigma_avg=Sigma_avg;
@@ -78,9 +74,6 @@ for iter=1:maxiter
     for k=1:max(z)
         [z,par,logP]=split_merge_sample(X,n,z,logP,par);    
     end    
-    
-    %sample Sigma0
-    [par,logP]=sample_Sigma0(par,logP);      
     
     % sample alpha
     [logZ,par.alpha]=sample_alpha(par,par.alpha);        
@@ -139,40 +132,7 @@ for sample_iter=1:max_iter
         accept=accept+1;       
     end
  end
- disp(['accepted ' num2str(accept) ' out of ' num2str(max_iter) ' samples for alpha']);
-
-
-%--------------------------------------------------------------------
-function [par,logP]=sample_Sigma0(par,logP)
-
-max_iter=100;
-sigma0=par.Sigma0(1,1);
-I=eye(par.p);
-const_prior=par.v0*par.p/2*log(2)+mvgammaln(par.p,par.v0/2);
-nn=par.n_avg+par.v0;
-const_post=nn*par.p/2*log(2)+mvgammaln(par.p,nn/2);
-logP_new=zeros(size(logP));
-accept=0;
-for sample_iter=1:max_iter       
-    % propose new sigma0
-    sigma0_new=exp(log(sigma0)+0.1*randn);     % symmetric Proposal distribution in log-domain (use change of variable in acceptance rate sigma0_new/sigma0)
-    Sigma0_new=sigma0_new*I;
-    R0=chol(Sigma0_new);
-    logPrior_new=par.v0*sum(log(diag(R0)))-const_prior;
-    for k=1:size(par.Sigma_avg,3)
-       R=chol(par.Sigma_avg(:,:,k)+Sigma0_new);       
-       logP_new(k)=logPrior_new-(nn(k)*sum(log(diag(R)))-const_post(k));
-    end
-    if rand<(sigma0_new/sigma0*exp(sum(logP_new)-sum(logP))) 
-        accept=accept+1;
-        sigma0=sigma0_new;
-        logP=logP_new;
-        par.logPrior=logPrior_new;
-        par.Sigma0=Sigma0_new;
-    end
-end
-disp(['accepted ' num2str(accept) ' out of ' num2str(max_iter) ' samples for Sigma0']);
-        
+ disp(['accepted ' num2str(accept) ' out of ' num2str(max_iter) ' samples for alpha']);        
     
 
 %--------------------------------------------------------------------
