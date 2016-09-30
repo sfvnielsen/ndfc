@@ -94,20 +94,13 @@ for iter=1:maxiter
     end
     if mod(iter,25)==0 % Store also every 25th sample
         ss=ss+1;
-       % par.sample(ss).par=par;
         par.sample(ss).z=z;
         par.sample(ss).Sigma0=par.Sigma0;
         par.sample(ss).alpha=par.alpha;
-       % E_Sigma=zeros(size(par.Sigma_avg));
-       % for k=1:size(par.Sigma_avg,3)
-       %     E_Sigma(:,:,k)=(par.Sigma_avg(:,:,k)+par.Sigma0)/(par.n_avg(k)+v0-p-1);
-       % end
-       % par.sample(ss).E_Sigma=E_Sigma;
         par.sample(ss).iter=iter;
     end
         
     K=max(z);
-    figure(1); plot(LL); ylabel('Joint distribution, constant terms ignored'); xlabel('Iteration');  title(['number of components ' num2str(K)]); 
 end
 E_Sigma=zeros(size(par.Sigma_avg));
 for k=1:size(par.Sigma_avg,3)
@@ -132,7 +125,7 @@ for sample_iter=1:max_iter
         accept=accept+1;       
     end
  end
- disp(['accepted ' num2str(accept) ' out of ' num2str(max_iter) ' samples for alpha']);        
+ %disp(['accepted ' num2str(accept) ' out of ' num2str(max_iter) ' samples for alpha']);        
     
 
 %--------------------------------------------------------------------

@@ -98,6 +98,8 @@ switch par.emission_type
     case {'ZMG','SSM'}
         if isfield(opts,'const_state'); const_state = opts.const_state; z = ones(N,1); else const_state=false;end;
         if isfield(opts,'z'), z=opts.z; elseif const_state, else z=ceil(Kinit*rand(N,1)); end
+    otherwise
+        error('Unrecognized Emisssion Type: Choose between ZMG, SSM and VAR')
 end
 
 if isfield(opts,'Sigma0'); Sigma0=opts.Sigma0; else Sigma0=eye(p); end
