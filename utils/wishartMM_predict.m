@@ -14,7 +14,7 @@ for ss=1:length(samples)
             Rtest=chol(Phi_k+Xtest(:,:,i));
             logP(i,k)=(n_test(i)-par.p-1)/2*log(det(Xtest(:,:,i)))-(v+n_test(i))*sum(log(diag(Rtest)))+mvgammaln(par.p,(v+n_test(i))/2)-mvgammaln(par.p,n_test(i)/2);
         end
-        logP(:,k)=logP(:,k)-mvgammaln(par.p,v/2)+v*sum(log(diag(R)));
+        logP(:,k)=logP(:,k)-mvgammaln(par.p,v/2)+v*sum(log(diag(R))); % leftovers from the training-posterior
     end
     logP=bsxfun(@plus,logP,log(E_pi));
     maxlogP=max(logP,[],2);
