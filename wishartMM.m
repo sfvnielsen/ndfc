@@ -12,7 +12,8 @@ function [z, E_Sigma, LL, par, noc_iter]=wishartMM(X,n,opts)
 % LL       log of joint distribution value pr. iteration
 % par      struct with model parameters and samples of z
 % noc_iter number of components at each iteration
-
+%
+% Written by: Morten Mørup, mmor@dtu.dk
 
 if ndims(X)>2
     [p,~,N]=size(X);
