@@ -1,5 +1,5 @@
 # Infinite Hidden Markov Model and Infinite Wishart Mixture Model
-Gibbs Sampler with Split-Merge Moves for the Infinite Hidden Markov Model (IHMM) (on top of Juergen Van Gaels IHMM toolbox http://mloss.org/software/view/205/ - see also the [Copyright Notice](#copyright notice) below) and the Infinite Wishart Mixture Model (IWMM) implemented in MATLAB. The code was used a part of a publication "Predictive Assesment of Models for Dynamic Functional Connectivity", which as of now has been submitted. 
+Gibbs Sampler with Split-Merge Moves for the Infinite Hidden Markov Model (IHMM) (on top of Juergen Van Gaels IHMM toolbox http://mloss.org/software/view/205/ - see also the [Copyright Notice](#copyright-notice) below) and the Infinite Wishart Mixture Model (IWMM) implemented in MATLAB. The code was used a part of a publication "Predictive Assesment of Models for Dynamic Functional Connectivity", which as of now has been submitted. 
 
 
 ## Infinite Hidden Markov Model
