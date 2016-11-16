@@ -34,6 +34,7 @@ purposes only, they have not been tested to the degree that would be
 advisable in any important application.  All use of these programs is
 entirely at the user's own risk.*
 
+### Changes from original code 
 In our main Gibbs sweep (in IHMMgibbs.m) we have used a code snippet from iHmmSampleGibbs.m that calculates Dirichlet Process contribution to the conditional density. It has been indicated with comments in the code where this snippet appears. 
 
 The following MATLAB functions have been directly copied to the current project
