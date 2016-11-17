@@ -1,5 +1,6 @@
 function logP_test=wishartMM_predict(Xtest,n_test,Xtrain,n_train,par,samples)
-
+% Calculates predictive likelihood for the Infinite Wishart Mixture Model
+% NB! Requires all slices of Xtest to be positive-definite
 logP_tmp=nan(size(Xtest,3),length(samples));
 for ss=1:length(samples)
     s=samples(ss);    

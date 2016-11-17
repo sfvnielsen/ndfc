@@ -299,9 +299,9 @@ for iter=iters;
         end
     end
     if mod(iter,10)==0|| iter==1
-        disp(sprintf('%12s | %15s | %12s | %12s |','Iteration','Log-Likelihood','# of states','Time [s]'));
+        fprintf('%12s | %15s | %12s | %12s |','Iteration','Log-Likelihood','# of states','Time [s] \n');
     end
-    disp(sprintf('%12d | %15d | %12d | %12.4f |',iter,LL(iter),K,toc(iter_start)));
+    fprintf('%12d | %15d | %12d | %12.4f | \n',iter,LL(iter),K,toc(iter_start));
     if iter==burnin && max_annealing
         disp(['  '])
         disp([' ... STARTING MAX ANNEALING ... '])

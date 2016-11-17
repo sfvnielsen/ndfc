@@ -51,5 +51,7 @@ bar(z_wishmm)
 title('Estimated State Sequence')
 axis tight
 
-% Predictive Likelihood
+% Predictive Likelihood 
 predictive_loglike =sum(wishartMM_predict(XX_test,df,XX,df,par,par.sample))
+% NB! Currently only supports calculating full predictive likelihood - i.e.
+% all slices XX_test should positive-definite

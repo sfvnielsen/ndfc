@@ -14,7 +14,11 @@ function [z, E_Sigma, LL, par, noc_iter]=wishartMM(X,n,opts)
 % noc_iter number of components at each iteration
 %
 % Written by: Morten Mørup, mmor@dtu.dk
-
+% Modified by: Søren Føns Vind Nielsen, sfvn@dtu.dk (Nov. 2016)
+% This code is part of the Non-paramteric Dynamic Functional Connectivity
+% Software (https://github.com/sfvnDTU/ndfc).
+global tol_debug
+tol_debug = 1e-8; % tolerance on log-joint test peforming in debug-mode
 if ndims(X)>2
     [p,~,N]=size(X);
 else
@@ -28,6 +32,7 @@ Sigma0 = eta*eye(p);
 if isfield(opts,'v0'); v0=opts.v0; else v0=p; end
 if isfield(opts,'maxiter'); maxiter=opts.maxiter; else maxiter=100; end; 
 if isfield(opts,'alpha'); alpha=opts.alpha; else alpha=log(N); end; 
+if isfield(opts,'debug'); debug=opts.debug; else debug=false; end; 
 
 R=chol(Sigma0);
 logPrior=v0*sum(log(diag(R)))-v0*p/2*log(2)-mvgammaln(p,v0/2);
@@ -63,11 +68,18 @@ par.v0=v0;
 par.p=p;   
 par.N=N;
 par.alpha=alpha;
+par.debug = debug;
 LLbest=-inf;
 ss=0;
-% Main loop
+
+%% Main loop
+disp([' '])
+disp('Infinite Wishart Mixture Model')
+disp([' '])
+disp(['To stop algorithm press control C'])
+disp([' ']);
 for iter=1:maxiter
-   
+    iter_start = tic;
     % Gibbs sample
     [z,par,logP]=gibbs_sample(X,n,z,logP,par,randperm(N));        
     
@@ -102,11 +114,22 @@ for iter=1:maxiter
     end
         
     K=max(z);
+    
+    if mod(iter,10)==0|| iter==1
+        fprintf('%12s | %15s | %12s | %12s | \n','Iteration','Log-Likelihood','# of states','Time [s]');
+    end
+    fprintf('%12d | %15d | %12d | %12.4f | \n',iter,LL(iter),K,toc(iter_start));
+
 end
 E_Sigma=zeros(size(par.Sigma_avg));
 for k=1:size(par.Sigma_avg,3)
     E_Sigma(:,:,k)=(par.Sigma_avg(:,:,k)+par.Sigma0)/(par.n_avg(k)+v0-p-1);
 end
+end
+
+%--------------------------------------------------------------------
+
+% SUBFUNCTIONS
 
 %--------------------------------------------------------------------
 function [logZ,alpha]=sample_alpha(par,alpha)
@@ -125,13 +148,12 @@ for sample_iter=1:max_iter
         logZ=logZ_new;
         accept=accept+1;       
     end
- end
- %disp(['accepted ' num2str(accept) ' out of ' num2str(max_iter) ' samples for alpha']);        
-    
+end    
+end
 
 %--------------------------------------------------------------------
 function [z,par,logP]=split_merge_sample(X,n,z,logP,par)    
-
+global tol_debug
   
 i1=ceil(par.N*rand);
 i2=ceil(par.N*rand);
@@ -181,6 +203,16 @@ if z(i1)==z(i2) % Split move
     
     logZ_t=max(z_t)*log(par.alpha)+sum(gammaln(par_t.sumZ))-gammaln(par.N+par.alpha)+gammaln(par.alpha);        
     logZ=max(z)*log(par.alpha)+sum(gammaln(par.sumZ))-gammaln(par.N+par.alpha)+gammaln(par.alpha);    
+    %%% DEBUG %%%  LOG JOINT TEST
+    if par.debug
+        joint_new=evalLogJoint(X,n,z_t,par);
+        joint_old=evalLogJoint(X,n,z,par);
+        if abs( sum(logP_t)-sum(logP) - (joint_new - joint_old))/max(abs(joint_new),abs(joint_old)) > tol_debug    
+            error('MyError:LogJointTestFailed', 'Log Joint Test failed in Split-Merge Sampler (SPLIT-MOVE)...')
+        end
+    end
+    %%% DEBUG END %%%
+    
     if rand<exp(sum(logP_t)+logZ_t-sum(logP)-logZ-logQ);
         disp(['split component ' num2str(z(i1))]);
         par=par_t;
@@ -261,6 +293,17 @@ else % merge move
         else
            logQ=0; 
         end
+        
+        %%% DEBUG %%%  LOG JOINT TEST
+        if par.debug
+            joint_new=evalLogJoint(X,n,z_new,par);
+            joint_old=evalLogJoint(X,n,z,par);
+            
+            if abs( sum(logP_new)-sum(logP) - (joint_new - joint_old))/max(abs(joint_new),abs(joint_old)) > tol_debug
+                error('MyError:LogJointTestFailed', 'Log Joint Test failed in Split-Merge Sampler (MERGE-MOVE)...')
+            end
+        end
+        %%% DEBUG END %%%
 
         if accept_rate<exp(sum(logP_new)+logZ_new-sum(logP)-logZ+logQ);
             disp(['merged component ' num2str(z(i1)) ' with component ' num2str(z(i2))]);
@@ -282,9 +325,8 @@ if ~isempty(idx_empty)
     par.sumZ(idx_empty)=[];
     z(z>idx_empty)=z(z>idx_empty)-1;
 end
-
+end
 %----------------------------------------------------------------------------
-
 function [z,par,logP,logQ]=gibbs_sample(X,n,z,logP,par,sample_idx,comp,forced)
     if nargin<8
         forced=[];
@@ -363,11 +405,17 @@ function [z,par,logP,logQ]=gibbs_sample(X,n,z,logP,par,sample_idx,comp,forced)
             nn=[(n_avg+n(i)+v0) n(i)+v0];
             logPnew=logPrior-(nn/2.*logdet-nn*p/2*log(2)-mvgammaln(p,nn/2));            
             logDif=logPnew-logP;
+            if par.debug %%% DEBUG
+               passed = logJointTest_Gibbs(X,n,i,z,logDif,par,comp);
+            end          %%% DEBUG END
             PP=[sumZ alpha].*exp(logDif-max(logDif));                     
        else            
             nn=n_avg(comp)+n(i)+v0;
             logPnew=logPrior-(nn/2.*logdet(comp)-nn*p/2*log(2)-mvgammaln(p,nn/2));            
             logDif=logPnew-logP(comp);
+            if par.debug %%% DEBUG
+               passed = logJointTest_Gibbs(X,n,i,z,logDif,par,comp);
+            end          %%% DEBUG END
             PP=sumZ(comp).*exp(logDif-max(logDif));                     
        end
        
@@ -417,5 +465,70 @@ function [z,par,logP,logQ]=gibbs_sample(X,n,z,logP,par,sample_idx,comp,forced)
     par.sumZ=sumZ;
     par.Sigma_avg=Sigma_avg;    
     
+    
+end
 
-   
+%--------------------------------------------------------------------
+function logJoint = evalLogJoint(X,n,z,par)
+p = par.p;
+N = par.N;
+R=chol(par.Sigma0);
+logPrior=par.v0*sum(log(diag(R)))-par.v0*p/2*log(2)-mvgammaln(p,par.v0/2);
+val=unique(z);
+Sigma_avg=zeros(p,p,length(val));
+n_avg=zeros(1,length(val));
+sumZ=zeros(1,length(val));
+logP=zeros(1,length(val));
+for k=1:length(val)
+    idx=(z==val(k));
+    z(idx)=k;
+    if ndims(X)>2
+        Sigma_avg(:,:,k)=sum(X(:,:,idx) ,3);
+    else
+        Sigma_avg(:,:,k)=X(:,idx)*X(:,idx)';
+    end
+    n_avg(k)=sum(n(idx));
+    sumZ(k)=sum(idx);
+    R=chol(Sigma_avg(:,:,k)+par.Sigma0);
+    logdet(k)=2*sum(log(diag(R)));
+    nn=(n_avg(k)+par.v0);
+    logP(k)=logPrior-(nn/2*logdet(k)-nn*p/2*log(2)-mvgammaln(p,nn/2));
+end
+alpha=par.alpha;
+logJoint = sum(logP);%+length(val)*log(alpha)+sum(gammaln(sumZ))-gammaln(N+alpha)+gammaln(alpha);
+end
+
+
+
+%--------------------------------------------------------------------
+function passed = logJointTest_Gibbs(X,n,i,z,logDif,par,comp)
+% join-likelihood test
+global tol_debug
+par1 = par; par2 = par;
+
+% Sample two random states
+if isempty(comp)
+    z_pos = [unique(z);max(z)+1];
+else
+    z_pos = comp;
+end
+assert(length(z_pos)>1);
+
+i1=ceil(length(z_pos)*rand);
+i2=ceil(length(z_pos)*rand);
+while i2==i1
+    i2=ceil(length(z_pos)*rand);
+end
+z1 = z; z2 = z;
+z1(i) = z_pos(i1); z2(i) = z_pos(i2);
+
+[logJointTest_1] = evalLogJoint(X,n,z1,par1);
+[logJointTest_2] = evalLogJoint(X,n,z2,par2);
+passed =abs(logDif(i1)-logDif(i2)-(logJointTest_1-logJointTest_2))/max(abs(logJointTest_1),abs(logJointTest_2)) < tol_debug;
+if ~passed
+    error('MyError:LogJointTestFailed', 'Log Joint Test failed in Gibbs Sampler...')
+end
+%eof
+end
+
+
