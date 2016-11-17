@@ -25,7 +25,7 @@ end
 
 
 %% IHMM analysis
-opts.Sigma0_scale = 1e-3*std(X(:)); % weak prior due to good SNR
+opts.Sigma0_scale = 1e-3*std(X(:)); % weak prior due to good SNR - should be cross-validated in practice
 opts.maxiter=250;
 opts.emission_type = 'SSM';
 

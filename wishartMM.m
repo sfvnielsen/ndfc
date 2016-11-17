@@ -1,6 +1,6 @@
 function [z, E_Sigma, LL, par, noc_iter]=wishartMM(X,n,opts)
 % Input
-% X        array of covariance matrices (p x p x number of matrices)
+% X        array of covariance/scatter matrices (p x p x number of matrices)
 % n        vector of the number of observations for which each covariance matrix is based
 %          on
 % opts.    struct with fields:
