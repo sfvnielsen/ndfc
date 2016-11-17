@@ -1,5 +1,7 @@
 # Non-parametric Dynamic Functional Connectivity (NDFC) Software in MATLAB
-Gibbs Sampler with Split-Merge Moves for the Infinite Hidden Markov Model (IHMM) (on top of Juergen Van Gaels IHMM toolbox http://mloss.org/software/view/205/ - see also the LICENSE file) and the Infinite Wishart Mixture Model (IWMM) implemented in MATLAB. The code was used a part of a publication "Predictive Assesment of Models for Dynamic Functional Connectivity", which as of now has been submitted. But models support calculating the predictive likelihood on a new data set, and this is showcased in the two demos demoIHMM.m and demo_wishartMM.m.
+Gibbs Sampler with Split-Merge Moves for the Infinite Hidden Markov Model (IHMM) (on top of Juergen Van Gaels IHMM toolbox http://mloss.org/software/view/205/ - see also the LICENSE file) and the Infinite Wishart Mixture Model (IWMM) implemented in MATLAB. The code was used a part of a publication "Predictive Assesment of Models for Dynamic Functional Connectivity", which as of now has been submitted. But models support calculating the predictive likelihood on a new data set, and this is showcased in the two demos demoIHMM.m and demo_wishartMM.m. 
+
+*NB! The IWMM requires the test-set to have all postive-definite matrices to currently calculate the predictive likelihood. A future release will feature an option to drop the term involving the determinant of the test data, which will still allow for model comparision and paramter tuning.*  
 
 When the time comes that this (hopefully) gets published please throw a reference to:
 
