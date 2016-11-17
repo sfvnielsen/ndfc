@@ -84,9 +84,9 @@ In our main Gibbs sweep (in IHMMgibbs.m) we have used a code snippet from
 iHmmSampleGibbs.m that calculates Dirichlet Process contribution 
 to the conditional density. 
 It has been indicated with comments in the code where this snippet appears.
-The iHmmHypersample.m function has been modified to accomodate the kappa-parameter
-(stickyness)
-
+The iHmmHypersample.m function has been modified in the input, such that
+the transition matrix is pre-calculated and now passed in as an argument
+instead of the state-sequence.
 
 
 ******  mvgammaln.m ******
