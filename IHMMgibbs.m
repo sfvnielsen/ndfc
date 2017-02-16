@@ -299,7 +299,7 @@ for iter=iters;
         end
     end
     if mod(iter,10)==0|| iter==1
-        fprintf('%12s | %15s | %12s | %12s |','Iteration','Log-Likelihood','# of states','Time [s] \n');
+        fprintf('%12s | %15s | %12s | %12s | \n','Iteration','Log-Likelihood','# of states','Time [s]');
     end
     fprintf('%12d | %15d | %12d | %12.4f | \n',iter,LL(iter),K,toc(iter_start));
     if iter==burnin && max_annealing
