@@ -1414,7 +1414,7 @@ switch par.emission_type
             postSIGK(:,:,k) = iwishrnd(S,par.v0+par.sumZ(k));
             
             % Sample Mean
-            muk = 1/(par.sumZ(k)+lambda)*par.x_avg(:,k) + lambda*mu0;
+            muk = 1/(par.sumZ(k)+lambda)*(par.x_avg(:,k) + lambda*mu0);
             postMU(:,k) = mvnrnd(muk',1/(lambda+par.sumZ(k))*postSIGK(:,:,k))';
         end
         post_samples.M{end+1} = postMU;
@@ -1494,8 +1494,8 @@ switch par.emission_type
             E.S(:,:,k) = S/(par.sumZ(k)-1);
             
             % Mean
-            E.M(:,k) = 1/(par.sumZ(k)+par.lambda)*par.x_avg(:,k)...
-                + par.lambda*par.mu0;
+            E.M(:,k) = 1/(par.sumZ(k)+par.lambda)*(par.x_avg(:,k)...
+                + par.lambda*par.mu0);
         end
         
     case 'VAR'
