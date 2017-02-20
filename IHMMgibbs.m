@@ -126,6 +126,7 @@ if isfield(opts,'keyboard_interrupt'); keyboard_interrupt=opts.keyboard_interrup
 if isfield(opts,'save_every'); save_every=opts.save_every; else save_every=0;end;
 if isfield(opts,'save_file'); save_file=opts.save_file; else save_file='ihmmgibbs_results.mat';end;
 if isfield(opts,'verbose'); par.verbose=opts.verbose; else par.verbose=false;end;
+if isfield(opts,'max_time'); max_time=opts.max_time; else max_time=0;end;
 
 %% Initialization
 % hyperparametesr set to values used in iHMM-v0.5__ by Jurgen Van Gael
@@ -233,6 +234,7 @@ if nargin==3
 end
 
 %% Main loop
+cpu_time = 0;
 for iter=iters;
     iter_start = tic;
     % Gibbs sample
@@ -301,7 +303,8 @@ for iter=iters;
     if mod(iter,10)==0|| iter==1
         fprintf('%12s | %15s | %12s | %12s | \n','Iteration','Log-Likelihood','# of states','Time [s]');
     end
-    fprintf('%12d | %15d | %12d | %12.4f | \n',iter,LL(iter),K,toc(iter_start));
+    cpu_time = [cpu_time,toc(iter_start)];
+    fprintf('%12d | %15d | %12d | %12.4f | \n',iter,LL(iter),K,cpu_time(end));
     if iter==burnin && max_annealing
         disp(['  '])
         disp([' ... STARTING MAX ANNEALING ... '])
@@ -322,6 +325,16 @@ for iter=iters;
        save(save_file,'sampling_state')
     end
     
+    if K == N
+        disp('Number of clusters equals the number of observations...terminating...')
+        disp('Consider other choices of hyper-parameters!')
+       break 
+    end
+    
+    if (sum(cpu_time)>max_time) && (max_time ~= 0)
+        disp('Algorithm used more time than specified in max_time...terminating...')
+       break 
+    end
 end
 
 if max_annealing
