@@ -104,7 +104,7 @@ end
 
 if isfield(opts,'Sigma0'); Sigma0=opts.Sigma0; else Sigma0=eye(p); end
 if isfield(opts,'mu0'); mu0=opts.mu0; else mu0=zeros(p,1); end
-if isfield(opts,'lambda'); lambda = opts.lambda; else lambda=std(X(:)); end
+if isfield(opts,'lambda'); lambda = opts.lambda; else lambda=1; end
 if isfield(opts,'Sigma0_scale'); Sigma0_scale=opts.Sigma0_scale; else Sigma0_scale=1; end
 if isfield(opts,'v0'); v0=opts.v0; else v0=p; end
 if isfield(opts,'maxiter'); maxiter=opts.maxiter; else maxiter=100; end;
