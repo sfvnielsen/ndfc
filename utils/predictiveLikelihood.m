@@ -19,7 +19,15 @@ function [avg_llike,llike] = predictiveLikelihood(X,post_samples)
 
 
 [p,T] = size(X);
-n_samples = length(post_samples.S);
+n_samples = length(post_samples);
+
+% if no samples are given return -Inf
+if n_samples==0
+    avg_llike = -Inf;
+    llike = [];
+    return
+end
+
 llike = nan(n_samples,1);
 if isfield(post_samples,'A')
     M = ceil( size(post_samples.A{1},2)/p);
