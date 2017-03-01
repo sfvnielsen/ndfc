@@ -328,6 +328,7 @@ for iter=iters;
     if K == N
         disp('Number of clusters equals the number of observations...terminating...')
         disp('Consider other choices of hyper-parameters!')
+        post_samples = [];
        break 
     end
     
