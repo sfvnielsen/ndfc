@@ -334,6 +334,7 @@ for iter=iters;
     
     if (sum(cpu_time)>max_time) && (max_time ~= 0)
         disp('Algorithm used more time than specified in max_time...terminating...')
+         post_samples = [];
        break 
     end
 end
