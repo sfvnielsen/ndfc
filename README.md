@@ -3,9 +3,9 @@ Gibbs Sampler with Split-Merge Moves for the Infinite Hidden Markov Model (IHMM)
 
 *NB! The IWMM requires the test-set to have all postive-definite matrices to currently calculate the predictive likelihood. A future release will feature an option to drop the term involving the determinant of the test data, which will still allow for model comparision and paramter tuning.*  
 
-When the time comes that this (hopefully) gets published please throw a reference to:
+If you found the code useful and use it a publication, please cite the following paper:
 
-Nielsen, S. F. V., Schmidt, M. N., Madsen, K. H. & Mørup, M. (Nov. 2016). *Predictive Assesment of Models for Dynamic Functional Connectivity*,  Submitted
+Nielsen, S. F. V., Schmidt, M. N., Madsen, K. H., & Mørup, M. (2018). *Predictive assessment of models for dynamic functional connectivity.* Neuroimage, 171, 116-134.
 
 ## Infinite Hidden Markov Model
 The Infinite Hidden Markov Model (IHMM) [2] is the Bayesian non-parametric extension of the hidden Markov model (HMM), in which we place a prior on the number of states and through inference (MCMC) learn the posterior distribution over state sequences. This construction is also known as a hierarchical Dirichlet Process. The implementation can be found in IHMMgibbs.m and a demonstration of how to use the code in demoIHMM.m.
